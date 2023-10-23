@@ -20,6 +20,7 @@ package org.quiltmc.enigmaplugin.index.enumfields;
 import cuchaz.enigma.translation.representation.TypeDescriptor;
 import cuchaz.enigma.translation.representation.entry.ClassEntry;
 import cuchaz.enigma.translation.representation.entry.FieldEntry;
+import cuchaz.enigma.utils.Pair;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.*;
 import org.objectweb.asm.tree.analysis.Analyzer;
@@ -30,6 +31,8 @@ import org.objectweb.asm.tree.analysis.SourceValue;
 import java.util.*;
 
 public class FieldNameFinder implements Opcodes {
+	private final Map<String, String> blockNames = new HashMap<>();
+
 	private static boolean isClassPutStatic(String owner, AbstractInsnNode insn) {
 		return insn.getOpcode() == PUTSTATIC && ((FieldInsnNode) insn).owner.equals(owner);
 	}
@@ -40,6 +43,39 @@ public class FieldNameFinder implements Opcodes {
 
 	private static boolean isCharacterUsable(char c) {
 		return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
+	}
+
+	/**
+	 * Automatically maps the names for block items based on the names for their corresponding blocks. A little cursed.
+	 */
+	private Optional<Pair<FieldEntry, String>> findItemName(Frame<SourceValue>[] frames) {
+		for (Frame<SourceValue> sourceValueFrame : frames) {
+			for (int j = 0; j < sourceValueFrame.getStackSize(); j++) {
+				SourceValue value = sourceValueFrame.getStack(j);
+
+				for (AbstractInsnNode insn : value.insns) {
+					// ensure we're calling the single-block register method in Blocks
+					if (insn instanceof MethodInsnNode methodInsnNode && methodInsnNode.getOpcode() == INVOKESTATIC && methodInsnNode.name.equals("m_cndbkmly")) {
+						AbstractInsnNode previous = methodInsnNode.getPrevious();
+						AbstractInsnNode next = methodInsnNode.getNext();
+
+						// the bytecode should be GETSTATIC, INVOKESTATIC, and then PUTSTATIC
+
+						if (previous instanceof FieldInsnNode blockField && isBlock(blockField.desc)
+								&& next instanceof FieldInsnNode fieldToSet) {
+							FieldEntry toSet = new FieldEntry(new ClassEntry(fieldToSet.owner), fieldToSet.name, new TypeDescriptor(fieldToSet.desc));
+							return Optional.of(new Pair<>(toSet, blockNames.get(blockField.name)));
+						}
+					}
+				}
+			}
+		}
+
+		return Optional.empty();
+	}
+
+	private static boolean isBlock(String desc) {
+		return desc.equals("Lnet/minecraft/unmapped/C_mmxmpdoq;");
 	}
 
 	public Map<FieldEntry, String> findNames(EnumFieldsIndex enumIndex) throws Exception {
@@ -56,6 +92,13 @@ public class FieldNameFinder implements Opcodes {
 			for (MethodNode staticInitializer : entry.getValue()) {
 				Frame<SourceValue>[] frames = analyzer.analyze(owner, staticInitializer);
 				InsnList instructions = staticInitializer.instructions;
+
+				// special-casing for block items
+				var blockItemMapping = findItemName(frames);
+				if (blockItemMapping.isPresent()) {
+					fieldNames.put(blockItemMapping.get().a(), blockItemMapping.get().b());
+					System.out.println(fieldNames.get(blockItemMapping.get().a()) + " " + blockItemMapping.get().a());
+				}
 
 				for (int i = 1; i < instructions.size(); i++) {
 					AbstractInsnNode insn1 = instructions.get(i - 1);
@@ -153,6 +196,10 @@ public class FieldNameFinder implements Opcodes {
 
 					if (usedNames.contains(fieldName)) {
 						fieldNames.put(new FieldEntry(classEntry, fInsn2.name, new TypeDescriptor(fInsn2.desc)), fieldName);
+
+						if (isBlock(fInsn2.desc)) {
+							blockNames.put(fInsn2.name, fieldName);
+						}
 					}
 				}
 			}
