@@ -31,7 +31,13 @@ import org.objectweb.asm.tree.analysis.SourceValue;
 import java.util.*;
 
 public class FieldNameFinder implements Opcodes {
+	private final EnumFieldsIndex enumIndex;
+
 	private final Map<String, String> blockNames = new HashMap<>();
+
+	public FieldNameFinder(EnumFieldsIndex index) {
+		this.enumIndex = index;
+	}
 
 	private static boolean isClassPutStatic(String owner, AbstractInsnNode insn) {
 		return insn.getOpcode() == PUTSTATIC && ((FieldInsnNode) insn).owner.equals(owner);
@@ -78,7 +84,24 @@ public class FieldNameFinder implements Opcodes {
 		return desc.equals("Lnet/minecraft/unmapped/C_mmxmpdoq;");
 	}
 
-	public Map<FieldEntry, String> findNames(EnumFieldsIndex enumIndex) throws Exception {
+	public void processNames(Map<FieldEntry, String> names) throws Exception {
+		Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
+
+		for (Map.Entry<String, List<MethodNode>> entry : enumIndex.getEnumStaticInitializers().entrySet()) {
+			for (MethodNode staticInitializer : entry.getValue()) {
+				Frame<SourceValue>[] frames = analyzer.analyze(entry.getKey(), staticInitializer);
+
+				// special-casing for block items
+				var blockItemMapping = this.findItemName(frames);
+				if (blockItemMapping.isPresent()) {
+					names.put(blockItemMapping.get().a(), blockItemMapping.get().b());
+					System.out.println(names.get(blockItemMapping.get().a()) + " " + blockItemMapping.get().a());
+				}
+			}
+		}
+	}
+
+	public Map<FieldEntry, String> findNames() throws Exception {
 		Analyzer<SourceValue> analyzer = new Analyzer<>(new SourceInterpreter());
 		Map<FieldEntry, String> fieldNames = new HashMap<>();
 		Map<String, Set<String>> usedFieldNames = new HashMap<>();
@@ -92,13 +115,6 @@ public class FieldNameFinder implements Opcodes {
 			for (MethodNode staticInitializer : entry.getValue()) {
 				Frame<SourceValue>[] frames = analyzer.analyze(owner, staticInitializer);
 				InsnList instructions = staticInitializer.instructions;
-
-				// special-casing for block items
-				var blockItemMapping = findItemName(frames);
-				if (blockItemMapping.isPresent()) {
-					fieldNames.put(blockItemMapping.get().a(), blockItemMapping.get().b());
-					System.out.println(fieldNames.get(blockItemMapping.get().a()) + " " + blockItemMapping.get().a());
-				}
 
 				for (int i = 1; i < instructions.size(); i++) {
 					AbstractInsnNode insn1 = instructions.get(i - 1);

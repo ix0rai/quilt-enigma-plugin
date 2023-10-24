@@ -47,7 +47,9 @@ public class EnumFieldsIndex implements Index {
 
 	public void findFieldNames() {
 		try {
-			fieldNames = new FieldNameFinder().findNames(this);
+			FieldNameFinder nameFinder = new FieldNameFinder(this);
+			fieldNames = nameFinder.findNames();
+			nameFinder.processNames(fieldNames);
 		} catch (Exception e) {
 			throw new RuntimeException(e);
 		}
